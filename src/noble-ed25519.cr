@@ -91,18 +91,18 @@ module Noble::Ed25519
   # Default Point works in affine coordinates: (x, y)
   # https://en.wikipedia.org/wiki/Twisted_Edwards_curve#Extended_coordinates
   class ExtendedPoint
-    BASE = ExtendedPoint.new(Curve::Gx, Curve::Gy, One, mod(Curve::Gx * Curve::Gy))
+    BASE = ExtendedPoint.new(Curve::Gx, Curve::Gy, One, Noble::Ed25519.mod(Curve::Gx * Curve::Gy))
     ZERO = ExtendedPoint.new(Zero, One, One, Zero)
 
     def self.fromAffine(p : Point) : ExtendedPoint
       return ExtendedPoint::ZERO if p == Point::ZERO
-      ExtendedPoint.new(p.x, p.y, One, mod(p.x * p.y))
+      ExtendedPoint.new(p.x, p.y, One, Noble::Ed25519.mod(p.x * p.y))
     end
     # Takes a bunch of Jacobian Points but executes only one
     # invert on all of them. invert is very slow operation,
     # so this improves performance massively.
     def self.toAffineBatch(points : Array(ExtendedPoint)) : Array(Point)
-      toInv = invertBatch(points.map(&.z))
+      toInv = Noble::Ed25519.invertBatch(points.map(&.z))
       return points.map {|p, i| p.toAffine(toInv[i]) }
     end
 
@@ -124,16 +124,16 @@ module Noble::Ed25519
       assertExtPoint(other)
       x1, y1, z1 = @x, @y, @z
       x2, y2, z2 = other.x, other.y, other.z
-      x1z2 = mod(x1 * z2)
-      x2z1 = mod(x2 * z1)
-      y1z2 = mod(y1 * z2)
-      y2z1 = mod(y2 * z1)
+      x1z2 = Noble::Ed25519.mod(x1 * z2)
+      x2z1 = Noble::Ed25519.mod(x2 * z1)
+      y1z2 = Noble::Ed25519.mod(y1 * z2)
+      y2z1 = Noble::Ed25519.mod(y2 * z1)
       return x1z2 === x2z1 && y1z2 === y2z1
     end
 
     # Inverses point to one corresponding to (x, -y) in Affine coordinates.
     def negate() : ExtendedPoint
-      return ExtendedPoint.new(mod(-@x), @y, @z, mod(-@t))
+      return ExtendedPoint.new(Noble::Ed25519.mod(-@x), @y, @z, Noble::Ed25519.mod(-@t))
     end
 
     # Fast algo for doubling Extended Point when curve's a=-1.
@@ -141,18 +141,18 @@ module Noble::Ed25519
     # Cost: 3M + 4S + 1*a + 7add + 1*2.
     def double() : ExtendedPoint
       x1, y1, z1 = @x, @y, @z
-      a = mod(x1 ** Noble::Ed25519::Two)
-      b = mod(y1 ** Noble::Ed25519::Two)
-      c = mod(Noble::Ed25519::Two * mod(z1 ** Noble::Ed25519::Two))
-      d = mod(Curve::A * a)
-      e = mod(mod((x1 + y1) ** Noble::Ed25519::Two) - a - b)
+      a = Noble::Ed25519.mod(x1 ** Noble::Ed25519::Two)
+      b = Noble::Ed25519.mod(y1 ** Noble::Ed25519::Two)
+      c = Noble::Ed25519.mod(Noble::Ed25519::Two * Noble::Ed25519.mod(z1 ** Noble::Ed25519::Two))
+      d = Noble::Ed25519.mod(Curve::A * a)
+      e = Noble::Ed25519.mod(Noble::Ed25519.mod((x1 + y1) ** Noble::Ed25519::Two) - a - b)
       g = d + b
       f = g - c
       h = d - b
-      x3 = mod(e * f)
-      y3 = mod(g * h)
-      t3 = mod(e * h)
-      z3 = mod(f * g)
+      x3 = Noble::Ed25519.mod(e * f)
+      y3 = Noble::Ed25519.mod(g * h)
+      t3 = Noble::Ed25519.mod(e * h)
+      z3 = Noble::Ed25519.mod(f * g)
       return ExtendedPoint.new(x3, y3, z3, t3)
     end
 
@@ -161,24 +161,24 @@ module Noble::Ed25519
     # Cost: 8M + 8add + 2*2.
     # Note: It does not check whether the `other` point is valid.
     def add(other : ExtendedPoint)
-      assertExtPoint(other)
+      # assertExtPoint(other)
       x1, y1, z1, t1 = @x, @y, @z, @t
       x2, y2, z2, t2 = other.x, other.y, other.z, other.t
-      a = mod((y1 - x1) * (y2 + x2))
-      b = mod((y1 + x1) * (y2 - x2))
-      f = mod(b - a)
+      a = Noble::Ed25519.mod((y1 - x1) * (y2 + x2))
+      b = Noble::Ed25519.mod((y1 + x1) * (y2 - x2))
+      f = Noble::Ed25519.mod(b - a)
       if f === Zero
         self.double()  # Same point.
       else
-        c = mod(z1 * Noble::Ed25519::Two * t2)
-        d = mod(t1 * Noble::Ed25519::Two * z2)
+        c = Noble::Ed25519.mod(z1 * Noble::Ed25519::Two * t2)
+        d = Noble::Ed25519.mod(t1 * Noble::Ed25519::Two * z2)
         e = d + c
         g = b + a
         h = d - c
-        x3 = mod(e * f)
-        y3 = mod(g * h)
-        t3 = mod(e * h)
-        z3 = mod(f * g)
+        x3 = Noble::Ed25519.mod(e * f)
+        y3 = Noble::Ed25519.mod(g * h)
+        t3 = Noble::Ed25519.mod(e * h)
+        z3 = Noble::Ed25519.mod(f * g)
         ExtendedPoint.new(x3, y3, z3, t3)
       end
     end
@@ -212,14 +212,12 @@ module Noble::Ed25519
       if affinePoint.nil? && self == ExtendedPoint::BASE
         affinePoint = Point::BASE
       end
-      w = (affinePoint && affinePoint._WINDOW_SIZE) || 1
-      if 256 % w != 0
-        raise Error.new("Point#wNAF: Invalid precomputation window, must be power of 2")
-      end
+      w = affinePoint.try(&._WINDOW_SIZE) || 1
+      raise ArgumentError.new("Point#wNAF: Invalid precomputation window, must be power of 2") if 256 % w != 0
 
-      precomputes = affinePoint && Noble::Ed25519::PointPrecomputes.get(WeakRef.new(affinePoint))
+      precomputes = affinePoint && Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)]?
       if !precomputes
-        precomputes = self.precomputeWindow(W)
+        precomputes = precomputeWindow(w)
         if affinePoint && w != 1
           precomputes = ExtendedPoint.normalizeZ(precomputes)
           Noble::Ed25519::PointPrecomputes.set(WeakRef.new(affinePoint), precomputes)
@@ -274,8 +272,8 @@ module Noble::Ed25519
     # Constant time multiplication.
     # Uses wNAF method. Windowed method may be 10% faster,
     # but takes 2x longer to generate and consumes 2x memory.
-    def multiply(scalar : Int, affinePoint? : Point) : ExtendedPoint
-      self.wNAF(normalizeScalar(scalar, Curve::L), affinePoint)
+    def multiply(scalar : Int, affinePoint : Point?) : ExtendedPoint
+      wNAF(Noble::Ed25519.normalizeScalar(scalar, Curve::L), affinePoint)
     end
 
     # Non-constant-time multiplication. Uses double-and-add algorithm.
@@ -283,7 +281,7 @@ module Noble::Ed25519
     # an exposed private key e.g. sig verification.
     # Allows scalar bigger than curve order, but less than 2^256
     def multiplyUnsafe(scalar : Int) : ExtendedPoint
-      n = normalizeScalar(scalar, Curve::L, false)
+      n = Noble::Ed25519.normalizeScalar(scalar, Curve::L, false)
       g = ExtendedPoint::BASE
       p0 = ExtendedPoint::ZERO
       if n == Zero
@@ -291,7 +289,7 @@ module Noble::Ed25519
       elsif self.equals(p0) || n === One
         self
       elsif self.equals(g)
-        self.wNAF(n)
+        wNAF(n)
       else
         p = p0
         d : ExtendedPoint = self
@@ -318,9 +316,9 @@ module Noble::Ed25519
     # Can accept precomputed Z^-1 - for example, from invertBatch.
     def toAffine(invZ : BigInt = invert(@z)) : Point
       x, y, z = @x, @y, @z
-      ax = mod(x * invZ)
-      ay = mod(y * invZ)
-      zz = mod(z * invZ)
+      ax = Noble::Ed25519.mod(x * invZ)
+      ay = Noble::Ed25519.mod(y * invZ)
+      zz = Noble::Ed25519.mod(z * invZ)
       if zz != One
         raise Error.new("invZ was invalid")
       end
@@ -349,24 +347,24 @@ module Noble::Ed25519
     # Computes Elligator map for Ristretto
     # https://ristretto.group/formulas/elligator.html
     private def self.calcElligatorRistrettoMap(r0 : BigInt) : ExtendedPoint
-      r = mod(SQRT_M1 * r0 * r0) # 1
-      ns = mod((r + One) * ONE_MINUS_D_SQ) # 2
+      r = Noble::Ed25519.mod(SQRT_M1 * r0 * r0) # 1
+      ns = Noble::Ed25519.mod((r + One) * ONE_MINUS_D_SQ) # 2
       c = BigInt.new(-1) # 3
-      d = mod((c - Curve::D * r) * mod(r + Curve::D)) # 4
+      d = Noble::Ed25519.mod((c - Curve::D * r) * Noble::Ed25519.mod(r + Curve::D)) # 4
       pair = uvRatio(ns, d) # 5
       ns_d_is_sq = pair.isValid
       s = pair.value
-      s_ = mod(s * r0) # 6
-      s_ = mod(-s_) unless edIsNegative(s_)
+      s_ = Noble::Ed25519.mod(s * r0) # 6
+      s_ = Noble::Ed25519.mod(-s_) unless edIsNegative(s_)
       s = s_ unless ns_d_is_sq # 7
       c = r unless ns_d_is_sq # 8
-      nt = mod(c * (r - One) * D_MINUS_ONE_SQ - d) # 9
+      nt = Noble::Ed25519.mod(c * (r - One) * D_MINUS_ONE_SQ - d) # 9
       s2 = s * s
-      w0 = mod((s + s) * d) # 10
-      w1 = mod(nt * SQRT_AD_MINUS_ONE) # 11
-      w2 = mod(One - s2) # 12
-      w3 = mod(One + s2) # 13
-      ExtendedPoint.new(mod(w0 * w3), mod(w2 * w1), mod(w1 * w3), mod(w0 * w2))
+      w0 = Noble::Ed25519.mod((s + s) * d) # 10
+      w1 = Noble::Ed25519.mod(nt * SQRT_AD_MINUS_ONE) # 11
+      w2 = Noble::Ed25519.mod(One - s2) # 12
+      w3 = Noble::Ed25519.mod(One + s2) # 13
+      ExtendedPoint.new(Noble::Ed25519.mod(w0 * w3), Noble::Ed25519.mod(w2 * w1), Noble::Ed25519.mod(w1 * w3), Noble::Ed25519.mod(w0 * w2))
     end
 
     #**
@@ -397,20 +395,20 @@ module Noble::Ed25519
       # 1. Check that s_bytes is the canonical encoding of a field element, or else abort.
       # 3. Check that s is non-negative, or else abort
       raise Error.new(emsg) if !equalBytes(numberTo32BytesLE(s), hex) || edIsNegative(s)
-      s2 = mod(s * s)
-      u1 = mod(One + Curve::A * s2) # 4 (a is -1)
-      u2 = mod(One - Curve::A * s2) # 5
-      u1_2 = mod(u1 * u1)
-      u2_2 = mod(u2 * u2)
-      v = mod(Curve::A * Curve::D * u1_2 - u2_2) # 6
-      pair = invertSqrt(mod(v * u2_2)) # 7
+      s2 = Noble::Ed25519.mod(s * s)
+      u1 = Noble::Ed25519.mod(One + Curve::A * s2) # 4 (a is -1)
+      u2 = Noble::Ed25519.mod(One - Curve::A * s2) # 5
+      u1_2 = Noble::Ed25519.mod(u1 * u1)
+      u2_2 = Noble::Ed25519.mod(u2 * u2)
+      v = Noble::Ed25519.mod(Curve::A * Curve::D * u1_2 - u2_2) # 6
+      pair = invertSqrt(Noble::Ed25519.mod(v * u2_2)) # 7
       i = pair.value
-      dx = mod(i * u2) # 8
-      dy = mod(i * dx * v) # 9
-      x = mod((s + s) * dx) # 10
-      x = mod(-x) if edIsNegative(x)  # 10
-      y = mod(u1 * dy) # 11
-      t = mod(x * y) # 12
+      dx = Noble::Ed25519.mod(i * u2) # 8
+      dy = Noble::Ed25519.mod(i * dx * v) # 9
+      x = Noble::Ed25519.mod((s + s) * dx) # 10
+      x = Noble::Ed25519.mod(-x) if edIsNegative(x)  # 10
+      y = Noble::Ed25519.mod(u1 * dy) # 11
+      t = Noble::Ed25519.mod(x * y) # 12
       raise Error.new(emsg) if !pair.isValid || edIsNegative(t) || y == Zero
       RistrettoPoint.new(ExtendedPoint.new(x, y, One, t))
     end
@@ -421,27 +419,27 @@ module Noble::Ed25519
     #/
     def toRawBytes() : Bytes
       x, y, z, t = @ep.x, @ep.y, @ep.z, @ep.t
-      u1 = mod(mod(z + y) * mod(z - y)) # 1
-      u2 = mod(x * y) # 2
+      u1 = Noble::Ed25519.mod(Noble::Ed25519.mod(z + y) * Noble::Ed25519.mod(z - y)) # 1
+      u2 = Noble::Ed25519.mod(x * y) # 2
       # Square root always exists
-      pair = invertSqrt(mod(u1 * u2 ** Noble::Ed25519::Two)) # 3
+      pair = invertSqrt(Noble::Ed25519.mod(u1 * u2 ** Noble::Ed25519::Two)) # 3
       invsqrt = pair.value
-      d1 = mod(invsqrt * u1) # 4
-      d2 = mod(invsqrt * u2) # 5
-      zInv = mod(d1 * d2 * t) # 6
+      d1 = Noble::Ed25519.mod(invsqrt * u1) # 4
+      d2 = Noble::Ed25519.mod(invsqrt * u2) # 5
+      zInv = Noble::Ed25519.mod(d1 * d2 * t) # 6
       d : BigInt = BigInt.new(0) # 7
       if (edIsNegative(t * zInv))
-        _x = mod(y * SQRT_M1)
-        _y = mod(x * SQRT_M1)
+        _x = Noble::Ed25519.mod(y * SQRT_M1)
+        _y = Noble::Ed25519.mod(x * SQRT_M1)
         x = _x
         y = _y
-        d = mod(d1 * INVSQRT_A_MINUS_D)
+        d = Noble::Ed25519.mod(d1 * INVSQRT_A_MINUS_D)
       else
         d = d2 # 8
       end
-      y = mod(-y) if edIsNegative(x * zInv) # 9
-      s = mod((z - y) * d) # 10 (check footer's note, no sqrt(-a))
-      s = mod(-s) if edIsNegative(s)
+      y = Noble::Ed25519.mod(-y) if edIsNegative(x * zInv) # 9
+      s = Noble::Ed25519.mod((z - y) * d) # 10 (check footer's note, no sqrt(-a))
+      s = Noble::Ed25519.mod(-s) if edIsNegative(s)
       numberTo32BytesLE(s) # 11
     end
 
@@ -459,8 +457,8 @@ module Noble::Ed25519
       a = self.ep
       b = other.ep
       # (x1 * y2 == y1 * x2) | (y1 * y2 == x1 * x2)
-      one = mod(a.x * b.y) == mod(a.y * b.x)
-      two = mod(a.y * b.y) == mod(a.x * b.x)
+      one = Noble::Ed25519.mod(a.x * b.y) == Noble::Ed25519.mod(a.y * b.x)
+      two = Noble::Ed25519.mod(a.y * b.y) == Noble::Ed25519.mod(a.x * b.x)
       return one || two
     end
 
@@ -540,9 +538,9 @@ module Noble::Ed25519
       # 2.  To recover the x-coordinate, the curve equation implies
       # x² = (y² - 1) / (d y² + 1) (mod p).  The denominator is always
       # non-zero mod p.  Let u = y² - 1 and v = d y² + 1.
-      y2 = mod(y * y)
-      u = mod(y2 - One)
-      v = mod(Curve::D * y2 + One)
+      y2 = Noble::Ed25519.mod(y * y)
+      u = Noble::Ed25519.mod(y2 - One)
+      v = Noble::Ed25519.mod(Curve::D * y2 + One)
       pair = uvRatio(u, v)
       isValid = pair.isValid
       x = pair.value
@@ -554,7 +552,7 @@ module Noble::Ed25519
       isXOdd = (x & One) == One
       isLastByteOdd = (hex[31] & 0x80) != 0
       if (isLastByteOdd != isXOdd)
-        x = mod(-x)
+        x = Noble::Ed25519.mod(-x)
       end
       return Point.new(x, y)
     end
@@ -591,7 +589,7 @@ module Noble::Ed25519
     # @returns u coordinate of curve25519 point
     #/
     def toX25519() : Bytes
-      u = mod((One + @y) * invert(One - @y))
+      u = Noble::Ed25519.mod((One + @y) * invert(One - @y))
       return numberTo32BytesLE(u)
     end
 
@@ -604,7 +602,7 @@ module Noble::Ed25519
     end
 
     def negate()
-      return Point.new(mod(-@x), @y)
+      return Point.new(Noble::Ed25519.mod(-@x), @y)
     end
 
     def add(other : Point)
@@ -645,7 +643,7 @@ module Noble::Ed25519
 
     def assertValidity()
       # 0 <= s < l
-      normalizeScalar(@s, Curve::L, false)
+      Noble::Ed25519.normalizeScalar(@s, Curve::L, false)
       self
     end
 
@@ -722,7 +720,7 @@ module Noble::Ed25519
 
   # Little-endian check for first LE bit (last BE bit)
   def edIsNegative(num : BigInt)
-    return (mod(num) & One) === One
+    return (Noble::Ed25519.mod(num) & One) === One
   end
 
   # Little Endian
@@ -731,11 +729,11 @@ module Noble::Ed25519
   end
 
   def bytes255ToNumberLE(bytes : Bytes) : BigInt
-    return mod(bytesToNumberLE(bytes) & (Noble::Ed25519::Two ** BigInt256 - One))
+    return Noble::Ed25519.mod(bytesToNumberLE(bytes) & (Noble::Ed25519::Two ** BigInt256 - One))
   end
   # -------------------------
 
-  def mod(a : BigInt, b : BigInt = Curve::P)
+  def mod(a : BigInt, b : BigInt = Curve::P) : BigInt
     res = a % b
     return res >= Zero ? res : b + res
   end
@@ -743,11 +741,9 @@ module Noble::Ed25519
   # Note: this egcd-based invert is 50% faster than powMod-based one.
   # Inverses number over modulo
   def invert(number : BigInt, modulo : BigInt = Curve::P) : BigInt
-    if (number === Zero || modulo <= Zero)
-      raise Error.new(`invert: expected positive integers, got n=${number} mod=${modulo}`)
-    end
+    raise ArgumentError.new("invert: expected positive integers, got n=#{number} mod=#{modulo}") if number === Zero || modulo <= Zero
     # Eucledian GCD https://brilliant.org/wiki/extended-euclidean-algorithm/
-    a = mod(number, modulo)
+    a = Noble::Ed25519.mod(number, modulo)
     b = modulo
     # prettier-ignore
     x = Zero
@@ -768,8 +764,8 @@ module Noble::Ed25519
       v = n
     end
     gcd = b
-    raise Error.new("invert: does not exist") if gcd != One
-    mod(x, modulo)
+    raise Exception.new("invert: does not exist") if gcd != One
+    Noble::Ed25519.mod(x, modulo)
   end
 
   #**
@@ -778,17 +774,17 @@ module Noble::Ed25519
   # @param p modulo
   # @returns list of inverted BigInts
   # @example
-  # invertBatch([1n, 2n, 4n], 21n)
+  # Noble::Ed25519.invertBatch([1n, 2n, 4n], 21n)
   # # => [1n, 11n, 16n]
   #/
   def invertBatch(nums : Array(BigInt), p : BigInt = Curve::P) : Array(BigInt)
-    tmp = Array.new(nums.length)
+    tmp = Array(BigInt).new(nums.size)
     # Walk from first to last, multiply them by each other MOD p
     lastMultiplied = nums.each_with_index.reduce(One) do |acc, pair|
       num, i = pair
       next acc if num == Zero
       tmp[i] = acc
-      mod(acc * num, p)
+      Noble::Ed25519.mod(acc * num, p)
     end
     # Invert last element
     inverted = invert(lastMultiplied, p)
@@ -796,8 +792,8 @@ module Noble::Ed25519
     nums.each_with_index.fold_right(inverted) do |acc, pair|
       num, i = pair
       next acc if num == Zero
-      tmp[i] = mod(acc * tmp[i], p)
-      mod(acc * num, p)
+      tmp[i] = Noble::Ed25519.mod(acc * tmp[i], p)
+      Noble::Ed25519.mod(acc * num, p)
     end
     return tmp
   end
@@ -845,19 +841,19 @@ module Noble::Ed25519
   # Constant-time
   # prettier-ignore
   def uvRatio(u : BigInt, v : BigInt) : {isValid: Bool, value: BigInt}
-    v3 = mod(v * v * v)                  # v³
-    v7 = mod(v3 * v3 * v)                # v⁷
+    v3 = Noble::Ed25519.mod(v * v * v)                  # v³
+    v7 = Noble::Ed25519.mod(v3 * v3 * v)                # v⁷
     pow = pow_2_252_3(u * v7).pow_p_5_8
-    x = mod(u * v3 * pow)                  # (uv³)(uv⁷)^(p-5)/8
-    vx2 = mod(v * x * x)                 # vx²
+    x = Noble::Ed25519.mod(u * v3 * pow)                  # (uv³)(uv⁷)^(p-5)/8
+    vx2 = Noble::Ed25519.mod(v * x * x)                 # vx²
     root1 = x                            # First root candidate
-    root2 = mod(x * SQRT_M1)             # Second root candidate
+    root2 = Noble::Ed25519.mod(x * SQRT_M1)             # Second root candidate
     useRoot1 = vx2 == u                 # If vx² = u (mod p), x is a square root
-    useRoot2 = vx2 == mod(-u)           # If vx² = -u, set x <-- x * 2^((p-1)/4)
-    noRoot = vx2 == mod(-u * SQRT_M1)   # There is no valid root, vx² = -u√(-1)
+    useRoot2 = vx2 == Noble::Ed25519.mod(-u)           # If vx² = -u, set x <-- x * 2^((p-1)/4)
+    noRoot = vx2 == Noble::Ed25519.mod(-u * SQRT_M1)   # There is no valid root, vx² = -u√(-1)
     x = root1 if useRoot1
     x = root2 if useRoot2 || noRoot         # We return root2 anyway, for const-time
-    x = mod(-x) if edIsNegative(x)
+    x = Noble::Ed25519.mod(-x) if edIsNegative(x)
     {isValid: useRoot1 || useRoot2, value: x}
   end
 
@@ -871,7 +867,7 @@ module Noble::Ed25519
   def sha512ModqLE(*args : Array(Bytes)) : BigInt
     hash = utils.sha512(concatBytes(*args))
     value = bytesToNumberLE(hash)
-    mod(value, Curve::L)
+    Noble::Ed25519.mod(value, Curve::L)
   end
 
   def equalBytes(b1 : Bytes, b2 : Bytes)
@@ -899,8 +895,8 @@ module Noble::Ed25519
   # For strict == false: `0 <= num < max`.
   # Converts non-float safe numbers to BigInts.
   #/
-  def normalizeScalar(num : Int, max : BigInt, strict = true) : BigInt
-    raise TypeError.new("Specify max value") unless max > 0
+  def Noble::Ed25519.normalizeScalar(num : Int, max : BigInt, strict = true) : BigInt
+    raise ArgumentError.new("Specify max value") unless max > 0
     # num = BigInt.new(num)
     case
     when strict && Zero < num && num < max
@@ -908,7 +904,7 @@ module Noble::Ed25519
     when !strict && Zero <= num && num < max
       num
     else
-      raise TypeError.new("Expected valid scalar: 0 < scalar < max")
+      raise ArgumentError.new("Expected valid scalar: 0 < scalar < max")
     end
     # if num < max
     #   if strict
@@ -945,11 +941,11 @@ module Noble::Ed25519
     in Hex
       ensureBytes(key)
     in Int
-      numberTo32BytesBE(normalizeScalar(key, MAX_256B))
+      numberTo32BytesBE(Noble::Ed25519.normalizeScalar(key, MAX_256B))
     end
     # key =
     #   typeof key === "BigInt" || typeof key === "number"
-    #     ? numberTo32BytesBE(normalizeScalar(key, MAX_256B))
+    #     ? numberTo32BytesBE(Noble::Ed25519.normalizeScalar(key, MAX_256B))
     #     : ensureBytes(key)
     raise Error.new("Expected 32 bytes") unless key_bytes.size == 32
     # hash to produce 64 bytes
@@ -960,7 +956,7 @@ module Noble::Ed25519
     # Second 32 bytes is called key prefix (5.1.6)
     prefix = hashed.slice(32, 64)
     # The actual private scalar
-    scalar = mod(bytesToNumberLE(head), Curve::L)
+    scalar = Noble::Ed25519.mod(bytesToNumberLE(head), Curve::L)
     # Point on Edwards curve aka public key
     point = Point::BASE.multiply(scalar)
     pointBytes = point.toRawBytes()
@@ -987,7 +983,7 @@ module Noble::Ed25519
     r = sha512ModqLE(prefix, message) # r = hash(prefix + msg)
     r_ = Point::BASE.multiply(r) # R = rG
     k = sha512ModqLE(R.toRawBytes(), pointBytes, message) # k = hash(R + P + msg)
-    s = mod(r + k * scalar, Curve::L) # s = r + kp
+    s = Noble::Ed25519.mod(r + k * scalar, Curve::L) # s = r + kp
     return Signature.new(r_, s).toRawBytes()
   end
 
@@ -1054,9 +1050,9 @@ module Noble::Ed25519
 
   # cswap from RFC7748
   def cswap(swap : BigInt, x_2 : BigInt, x_3 : BigInt) : {BigInt, BigInt}
-    dummy = mod(swap * (x_2 - x_3))
-    x_2 = mod(x_2 - dummy)
-    x_3 = mod(x_3 + dummy)
+    dummy = Noble::Ed25519.mod(swap * (x_2 - x_3))
+    x_2 = Noble::Ed25519.mod(x_2 - dummy)
+    x_3 = Noble::Ed25519.mod(x_3 + dummy)
     {x_2, x_3}
   end
 
@@ -1068,10 +1064,10 @@ module Noble::Ed25519
   # @returns new Point on Montgomery curve
   #/
   def montgomeryLadder(pointU : BigInt, scalar : BigInt) : BigInt
-    u = normalizeScalar(pointU, Curve::P)
+    u = Noble::Ed25519.normalizeScalar(pointU, Curve::P)
     # Section 5: Implementations MUST accept non-canonical values and process them as
     # if they had been reduced modulo the field prime.
-    k = normalizeScalar(scalar, Curve::P)
+    k = Noble::Ed25519.normalizeScalar(scalar, Curve::P)
     # The constant a24 is (486662 - 2) / 4 = 121665 for curve25519/X25519
     a24 = BigInt.new(121665)
     x_1 = u
@@ -1094,18 +1090,18 @@ module Noble::Ed25519
       swap = k_t
 
       a_ = x_2 + z_2
-      aa_ = mod(a_ * a_)
+      aa_ = Noble::Ed25519.mod(a_ * a_)
       b_ = x_2 - z_2
-      bb_ = mod(b_ * b_)
+      bb_ = Noble::Ed25519.mod(b_ * b_)
       e_ = aa_ - bb_
       c_ = x_3 + z_3
       d_ = x_3 - z_3
-      da_ = mod(d_ * a_)
-      cb_ = mod(c_ * b_)
-      x_3 = mod((da_ + cb_) ** Noble::Ed25519::Two)
-      z_3 = mod(x_1 * (da_ - cb_) ** Noble::Ed25519::Two)
-      x_2 = mod(aa_ * bb_)
-      z_2 = mod(e_ * (aa_ + mod(a24 * e_)))
+      da_ = Noble::Ed25519.mod(d_ * a_)
+      cb_ = Noble::Ed25519.mod(c_ * b_)
+      x_3 = Noble::Ed25519.mod((da_ + cb_) ** Noble::Ed25519::Two)
+      z_3 = Noble::Ed25519.mod(x_1 * (da_ - cb_) ** Noble::Ed25519::Two)
+      x_2 = Noble::Ed25519.mod(aa_ * bb_)
+      z_2 = Noble::Ed25519.mod(e_ * (aa_ + Noble::Ed25519.mod(a24 * e_)))
       t -= 1
     end
     sw = cswap(swap, x_2, x_3)
@@ -1116,12 +1112,12 @@ module Noble::Ed25519
     z_3 = sw[1]
     pow_p_5_8, b2 = pow_2_252_3(z_2)
     # x^(p-2) aka x^(2^255-21)
-    xp2 = mod(pow2(pow_p_5_8, BigInt.new(3)) * b2)
-    mod(x_2 * xp2)
+    xp2 = Noble::Ed25519.mod(pow2(pow_p_5_8, BigInt.new(3)) * b2)
+    Noble::Ed25519.mod(x_2 * xp2)
   end
 
   def encodeUCoordinate(u : BigInt) : Bytes
-    numberTo32BytesLE(mod(u, Curve::P))
+    numberTo32BytesLE(Noble::Ed25519.mod(u, Curve::P))
   end
 
   def decodeUCoordinate(uEnc : Hex) : BigInt
@@ -1191,7 +1187,7 @@ module Noble::Ed25519
     def hashToPrivateScalar(hash : Hex) : BigInt
       hash = ensureBytes(hash)
       raise Error.new("Expected 40-1024 bytes of private key as per FIPS 186") if hash.size < 40 || hash.size > 1024
-      num = mod(bytesToNumberLE(hash), Curve::L)
+      num = Noble::Ed25519.mod(bytesToNumberLE(hash), Curve::L)
       # This should never happen
       raise Error.new("Invalid private key") if num === Zero || num === One
       num
