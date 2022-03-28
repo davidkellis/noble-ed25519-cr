@@ -1,6 +1,7 @@
 # this is a crystal port of https://github.com/paulmillr/noble-ed25519/blob/main/index.ts
 
 require "big"
+require "digest"
 require "weak_ref"
 
 class Array(T)
@@ -95,19 +96,23 @@ module Noble::Ed25519
     ZERO = ExtendedPoint.new(Zero, One, One, Zero)
 
     def self.fromAffine(p : Point) : ExtendedPoint
-      return ExtendedPoint::ZERO if p == Point::ZERO
-      ExtendedPoint.new(p.x, p.y, One, Noble::Ed25519.mod(p.x * p.y))
+      if p == Point::ZERO
+        ExtendedPoint::ZERO
+      else
+        ExtendedPoint.new(p.x, p.y, One, Noble::Ed25519.mod(p.x * p.y))
+      end
     end
+    
     # Takes a bunch of Jacobian Points but executes only one
     # invert on all of them. invert is very slow operation,
     # so this improves performance massively.
     def self.toAffineBatch(points : Array(ExtendedPoint)) : Array(Point)
       toInv = Noble::Ed25519.invertBatch(points.map(&.z))
-      return points.map {|p, i| p.toAffine(toInv[i]) }
+      points.map_with_index {|p, i| p.toAffine(toInv[i]) }
     end
 
     def self.normalizeZ(points : Array(ExtendedPoint)) : Array(ExtendedPoint)
-      return self.toAffineBatch(points).map {|p| fromAffine(p) }
+      self.toAffineBatch(points).map {|p| fromAffine(p) }
     end
 
 
@@ -215,14 +220,18 @@ module Noble::Ed25519
       w = affinePoint.try(&._WINDOW_SIZE) || 1
       raise ArgumentError.new("Point#wNAF: Invalid precomputation window, must be power of 2") if 256 % w != 0
 
-      precomputes = affinePoint && Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)]?
-      if !precomputes
-        precomputes = precomputeWindow(w)
-        if affinePoint && w != 1
-          precomputes = ExtendedPoint.normalizeZ(precomputes)
-          Noble::Ed25519::PointPrecomputes.set(WeakRef.new(affinePoint), precomputes)
+      precomputes : Array(ExtendedPoint) = 
+        if affinePoint && (points = Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)]?)
+          points
+        else
+          points = precomputeWindow(w)
+          if affinePoint && w != 1
+            points = ExtendedPoint.normalizeZ(points)
+            Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)] = points
+          end
+          points
         end
-      end
+      
 
       p = ExtendedPoint::ZERO
       f = ExtendedPoint::ZERO
@@ -258,7 +267,7 @@ module Noble::Ed25519
           end
           f = f.add(pr)
         else
-          cached = precomputes[offset + Math.abs(wbits) - 1]
+          cached = precomputes[offset + wbits.abs - 1]
           if wbits < 0
             cached = cached.negate()
           end
@@ -314,13 +323,13 @@ module Noble::Ed25519
 
     # Converts Extended point to default (x, y) coordinates.
     # Can accept precomputed Z^-1 - for example, from invertBatch.
-    def toAffine(invZ : BigInt = invert(@z)) : Point
+    def toAffine(invZ : BigInt = Noble::Ed25519.invert(@z)) : Point
       x, y, z = @x, @y, @z
       ax = Noble::Ed25519.mod(x * invZ)
       ay = Noble::Ed25519.mod(y * invZ)
       zz = Noble::Ed25519.mod(z * invZ)
       if zz != One
-        raise Error.new("invZ was invalid")
+        raise Exception.new("invZ was invalid")
       end
       return Point.new(ax, ay)
     end
@@ -394,7 +403,7 @@ module Noble::Ed25519
       s = bytes255ToNumberLE(hex)
       # 1. Check that s_bytes is the canonical encoding of a field element, or else abort.
       # 3. Check that s is non-negative, or else abort
-      raise Error.new(emsg) if !equalBytes(numberTo32BytesLE(s), hex) || edIsNegative(s)
+      raise Exception.new(emsg) if !equalBytes(numberTo32BytesLE(s), hex) || edIsNegative(s)
       s2 = Noble::Ed25519.mod(s * s)
       u1 = Noble::Ed25519.mod(One + Curve::A * s2) # 4 (a is -1)
       u2 = Noble::Ed25519.mod(One - Curve::A * s2) # 5
@@ -409,7 +418,7 @@ module Noble::Ed25519
       x = Noble::Ed25519.mod(-x) if edIsNegative(x)  # 10
       y = Noble::Ed25519.mod(u1 * dy) # 11
       t = Noble::Ed25519.mod(x * y) # 12
-      raise Error.new(emsg) if !pair.isValid || edIsNegative(t) || y == Zero
+      raise Exception.new(emsg) if !pair.isValid || edIsNegative(t) || y == Zero
       RistrettoPoint.new(ExtendedPoint.new(x, y, One, t))
     end
 
@@ -532,8 +541,8 @@ module Noble::Ed25519
       normed[31] = hex[31] & ~0x80
       y = bytesToNumberLE(normed)
 
-      raise Error.new("Expected 0 < hex < P") if strict && y >= Curve::P
-      raise Error.new("Expected 0 < hex < 2**256") if !strict && y >= MAX_256B
+      raise Exception.new("Expected 0 < hex < P") if strict && y >= Curve::P
+      raise Exception.new("Expected 0 < hex < 2**256") if !strict && y >= MAX_256B
 
       # 2.  To recover the x-coordinate, the curve equation implies
       # x² = (y² - 1) / (d y² + 1) (mod p).  The denominator is always
@@ -544,7 +553,7 @@ module Noble::Ed25519
       pair = uvRatio(u, v)
       isValid = pair.isValid
       x = pair.value
-      raise Error.new("Point.fromHex: invalid y coordinate") unless isValid
+      raise Exception.new("Point.fromHex: invalid y coordinate") unless isValid
 
       # 4.  Finally, use the x_0 bit to select the right square root.  If
       # x = 0, and x_0 = 1, decoding fails.  Otherwise, if x_0 != x mod
@@ -565,7 +574,7 @@ module Noble::Ed25519
     # When compressing point, it's enough to only store its y coordinate
     # and use the last byte to encode sign of x.
     def toRawBytes() : Bytes
-      bytes = numberTo32BytesLE(@y)
+      bytes = Noble::Ed25519.numberTo32BytesLE(@y)
       bytes[31] |= @x & One ? 0x80 : 0
       return bytes
     end
@@ -650,7 +659,7 @@ module Noble::Ed25519
     def toRawBytes()
       u8 = Bytes.new(64)
       u8.set(self.r.toRawBytes())
-      u8.set(numberTo32BytesLE(self.s), 32)
+      u8.set(Noble::Ed25519.numberTo32BytesLE(self.s), 32)
       return u8
     end
 
@@ -681,13 +690,13 @@ module Noble::Ed25519
 
   # Convert between types
   # ---------------------
-  hexes = (0..255).each.with_index.map {|v, i| i.to_s(16).rjust(2, '0') }.to_a
+  Hexes = (0..255).each.with_index.map {|v, i| i.to_s(16).rjust(2, '0') }.to_a
   def bytesToHex(uint8a : Bytes) : String
     # pre-caching improves the speed 6x
     hex = ""
     i = 0
-    while i < uint8a.length  # for (i = 0 i < uint8a.length i++)
-      hex += hexes[uint8a[i]]
+    while i < uint8a.size  # for (i = 0 i < uint8a.length i++)
+      hex += Hexes[uint8a[i]]
       i += 1
     end
     return hex
@@ -695,13 +704,13 @@ module Noble::Ed25519
 
   # Caching slows it down 2-3x
   def hexToBytes(hex : String) : Bytes
-    raise Error.new("hexToBytes: received invalid unpadded hex") unless hex.size % 2 == 0
-    array = Bytes.new(hex.length / 2)
+    raise Exception.new("hexToBytes: received invalid unpadded hex") unless hex.size % 2 == 0
+    array = Bytes.new(hex.size // 2)
     i = 0
-    while i < array.length   # for (i = 0 i < array.length i++)
+    while i < array.size   # for (i = 0 i < array.length i++)
       j = i * 2
-      hexByte = hex.slice(j, j + 2)
-      byte = Number.parseInt(hexByte, 16)
+      hexByte = hex[j, 2]
+      byte = hexByte.to_u8(16)
       array[i] = byte
       i += 1
     end
@@ -710,32 +719,32 @@ module Noble::Ed25519
 
   def numberTo32BytesBE(num : BigInt) : Bytes
     length = 32
-    hex = num.toString(16).padStart(length * 2, "0")
-    return hexToBytes(hex)
+    hex = num.to_s(16).rjust(length * 2, '0')
+    hexToBytes(hex)
   end
 
-  def numberTo32BytesLE(num : BigInt)
-    return numberTo32BytesBE(num).reverse()
+  def numberTo32BytesLE(num : BigInt) : Bytes
+    numberTo32BytesBE(num).reverse!
   end
 
   # Little-endian check for first LE bit (last BE bit)
   def edIsNegative(num : BigInt)
-    return (Noble::Ed25519.mod(num) & One) === One
+    (mod(num) & One) === One
   end
 
   # Little Endian
   def bytesToNumberLE(uint8a : Bytes) : BigInt
-    return BigInt.new("0x" + bytesToHex(Bytes.from(uint8a).reverse()))
+    BigInt.new("0x" + bytesToHex(uint8a.clone.reverse!))
   end
 
   def bytes255ToNumberLE(bytes : Bytes) : BigInt
-    return Noble::Ed25519.mod(bytesToNumberLE(bytes) & (Noble::Ed25519::Two ** BigInt256 - One))
+    Noble::Ed25519.mod(bytesToNumberLE(bytes) & (Noble::Ed25519::Two ** BigInt256 - One))
   end
   # -------------------------
 
   def mod(a : BigInt, b : BigInt = Curve::P) : BigInt
     res = a % b
-    return res >= Zero ? res : b + res
+    res >= Zero ? res : b + res
   end
 
   # Note: this egcd-based invert is 50% faster than powMod-based one.
@@ -743,7 +752,7 @@ module Noble::Ed25519
   def invert(number : BigInt, modulo : BigInt = Curve::P) : BigInt
     raise ArgumentError.new("invert: expected positive integers, got n=#{number} mod=#{modulo}") if number === Zero || modulo <= Zero
     # Eucledian GCD https://brilliant.org/wiki/extended-euclidean-algorithm/
-    a = Noble::Ed25519.mod(number, modulo)
+    a = mod(number, modulo)
     b = modulo
     # prettier-ignore
     x = Zero
@@ -751,7 +760,7 @@ module Noble::Ed25519
     u = One
     v = Zero
     while a != Zero
-      q = b / a
+      q = b // a
       r = b % a
       m = x - u * q
       n = y - v * q
@@ -765,7 +774,7 @@ module Noble::Ed25519
     end
     gcd = b
     raise Exception.new("invert: does not exist") if gcd != One
-    Noble::Ed25519.mod(x, modulo)
+    mod(x, modulo)
   end
 
   #**
@@ -789,8 +798,8 @@ module Noble::Ed25519
     # Invert last element
     inverted = invert(lastMultiplied, p)
     # Walk from last to first, multiply them by inverted each other MOD p
-    nums.each_with_index.fold_right(inverted) do |acc, pair|
-      num, i = pair
+    nums.fold_right(inverted) do |acc, num, i|
+      # num, i = pair
       next acc if num == Zero
       tmp[i] = Noble::Ed25519.mod(acc * tmp[i], p)
       Noble::Ed25519.mod(acc * num, p)
@@ -884,7 +893,7 @@ module Noble::Ed25519
       hexToBytes(hex)
     end
     # bytes = hex instanceof Bytes ? Bytes.from(hex) : hexToBytes(hex)
-    raise Error.new("Expected #{expectedLength} bytes") if expectedLength && bytes.size != expectedLength
+    raise Exception.new("Expected #{expectedLength} bytes") if expectedLength && bytes.size != expectedLength
       
     return bytes
   end
@@ -913,7 +922,7 @@ module Noble::Ed25519
     #     if (Zero <= num) return num
     #   end
     # end
-    # raise TypeError.new("Expected valid scalar: 0 < scalar < max")
+    # raise TypeException.new("Expected valid scalar: 0 < scalar < max")
   end
 
   def adjustBytes25519(bytes : Bytes) : Bytes
@@ -947,14 +956,14 @@ module Noble::Ed25519
     #   typeof key === "BigInt" || typeof key === "number"
     #     ? numberTo32BytesBE(Noble::Ed25519.normalizeScalar(key, MAX_256B))
     #     : ensureBytes(key)
-    raise Error.new("Expected 32 bytes") unless key_bytes.size == 32
+    raise Exception.new("Expected 32 bytes") unless key_bytes.size == 32
     # hash to produce 64 bytes
-    hashed = utils.sha512(key_bytes)
+    hashed = Utils.sha512(key_bytes)
     # First 32 bytes of 64b uniformingly random input are taken,
     # clears 3 bits of it to produce a random field element.
-    head = adjustBytes25519(hashed.slice(0, 32))
+    head = adjustBytes25519(hashed[0, 32])
     # Second 32 bytes is called key prefix (5.1.6)
-    prefix = hashed.slice(32, 64)
+    prefix = hashed[32, 32]
     # The actual private scalar
     scalar = Noble::Ed25519.mod(bytesToNumberLE(head), Curve::L)
     # Point on Edwards curve aka public key
@@ -1138,7 +1147,7 @@ module Noble::Ed25519
       pu = montgomeryLadder(u, p)
       # The result was not contributory
       # https://cr.yp.to/ecdh.html#validate
-      raise Error.new("Invalid private or public key received") if pu == Zero
+      raise Exception.new("Invalid private or public key received") if pu == Zero
       encodeUCoordinate(pu)
     end
 
@@ -1186,10 +1195,10 @@ module Noble::Ed25519
     #/
     def hashToPrivateScalar(hash : Hex) : BigInt
       hash = ensureBytes(hash)
-      raise Error.new("Expected 40-1024 bytes of private key as per FIPS 186") if hash.size < 40 || hash.size > 1024
+      raise Exception.new("Expected 40-1024 bytes of private key as per FIPS 186") if hash.size < 40 || hash.size > 1024
       num = Noble::Ed25519.mod(bytesToNumberLE(hash), Curve::L)
       # This should never happen
-      raise Error.new("Invalid private key") if num === Zero || num === One
+      raise Exception.new("Invalid private key") if num === Zero || num === One
       num
     end
 
