@@ -979,7 +979,8 @@ module Noble::Ed25519
   # RFC8032 5.1.5
   #/
   def getPublicKey(privateKey : PrivKey) : Bytes
-    getExtendedPublicKey(privateKey).pointBytes
+    _, _, _, _, pointBytes = getExtendedPublicKey(privateKey)
+    pointBytes
   end
 
   #**
