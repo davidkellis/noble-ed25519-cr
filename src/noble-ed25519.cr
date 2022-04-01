@@ -787,11 +787,13 @@ module Noble::Ed25519
   # # => [1n, 11n, 16n]
   #/
   def invertBatch(nums : Array(BigInt), p : BigInt = Curve::P) : Array(BigInt)
-    tmp = Array(BigInt).new(nums.size)
+    # puts "size = #{nums.size}"
+    tmp = Array(BigInt).new(nums.size, Noble::Ed25519::Zero)
     # Walk from first to last, multiply them by each other MOD p
     lastMultiplied = nums.each_with_index.reduce(One) do |acc, pair|
       num, i = pair
       next acc if num == Zero
+      # puts "#{i} -> #{acc}"
       tmp[i] = acc
       Noble::Ed25519.mod(acc * num, p)
     end
