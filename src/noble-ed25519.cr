@@ -2,43 +2,16 @@
 
 require "big"
 require "digest"
+require "extlib"
 require "weak_ref"
-
-class Array(T)
-  # Yields each element in this iterator together with its index.
-  def reverse_each_with_index
-    (size - 1).downto(0) do |index|
-      yield unsafe_fetch(index), index
-    end
-  end
- 
-  # Example:
-  # puts [1,2,3,4].fold_right(5) {|memo, num| memo * 10 + num }    # prints "54321"
-  def fold_right(memo : A, &blk : (A, T) -> A) forall A
-    reverse_each do |elem|
-      memo = yield memo, elem
-    end
-    memo
-  end
- 
-  # Example:
-  # puts [1,2,3,4].fold_right(5) {|memo, num, i| puts("#{i} -> #{num}"); memo * 10 + num }
-  # prints:
-  # 3 -> 4
-  # 2 -> 3
-  # 1 -> 2
-  # 0 -> 1
-  # 54321
-  def fold_right(memo : A, &blk : (A, T, Int32) -> A) forall A
-    reverse_each_with_index do |elem, index|
-      memo = yield memo, elem, index
-    end
-    memo
-  end
-end
 
 module Noble::Ed25519
   extend self
+
+  alias Hex = Bytes | String
+  alias PrivKey = Hex | BigInt
+  alias PubKey = Hex | Point
+  alias SigType = Hex | Signature
 
   Zero = BigInt.new(0)
   One = BigInt.new(1)
@@ -67,11 +40,6 @@ module Noble::Ed25519
     Gx = BigInt.new("15112221349535400772501151409588531511454012693041857206046113283949847762202")
     Gy = BigInt.new("46316835694926478169428394003475163141307993866256225615783033603165251855960")
   end
-
-  alias Hex = Bytes | String
-  alias PrivKey = Hex | BigInt
-  alias PubKey = Hex | Point
-  alias SigType = Hex | Signature
 
   MAX_256B = Noble::Ed25519::Two ** BigInt.new(256)
 
@@ -126,7 +94,6 @@ module Noble::Ed25519
 
     # Compare one point to another.
     def equals(other : ExtendedPoint) : Bool
-      assertExtPoint(other)
       x1, y1, z1 = @x, @y, @z
       x2, y2, z2 = other.x, other.y, other.z
       x1z2 = Noble::Ed25519.mod(x1 * z2)
@@ -213,7 +180,7 @@ module Noble::Ed25519
       return points
     end
 
-    private def wNAF(n : BigInt, affinePoint : Point?) : ExtendedPoint
+    private def wNAF(n : BigInt, affinePoint : Point? = nil) : ExtendedPoint
       if affinePoint.nil? && self == ExtendedPoint::BASE
         affinePoint = Point::BASE
       end
@@ -361,7 +328,7 @@ module Noble::Ed25519
       c = BigInt.new(-1) # 3
       d = Noble::Ed25519.mod((c - Curve::D * r) * Noble::Ed25519.mod(r + Curve::D)) # 4
       pair = uvRatio(ns, d) # 5
-      ns_d_is_sq = pair.isValid
+      ns_d_is_sq = pair[:isValid]
       s = pair.value
       s_ = Noble::Ed25519.mod(s * r0) # 6
       s_ = Noble::Ed25519.mod(-s_) unless edIsNegative(s_)
@@ -531,15 +498,15 @@ module Noble::Ed25519
     # Converts hash string or Bytes to Point.
     # Uses algo from RFC8032 5.1.3.
     def self.fromHex(hex : Hex, strict = true)
-      hex = ensureBytes(hex, 32)
+      hex = Noble::Ed25519.ensureBytes(hex, 32)
       # 1.  First, interpret the string as an integer in little-endian
       # representation. Bit 255 of this number is the least significant
       # bit of the x-coordinate and denote this value x_0.  The
       # y-coordinate is recovered simply by clearing this bit.  If the
       # resulting value is >= p, decoding fails.
-      normed = hex.slice()
+      normed = hex.to_slice
       normed[31] = hex[31] & ~0x80
-      y = bytesToNumberLE(normed)
+      y = Noble::Ed25519.bytesToNumberLE(normed)
 
       raise Exception.new("Expected 0 < hex < P") if strict && y >= Curve::P
       raise Exception.new("Expected 0 < hex < 2**256") if !strict && y >= MAX_256B
@@ -550,9 +517,9 @@ module Noble::Ed25519
       y2 = Noble::Ed25519.mod(y * y)
       u = Noble::Ed25519.mod(y2 - One)
       v = Noble::Ed25519.mod(Curve::D * y2 + One)
-      pair = uvRatio(u, v)
-      isValid = pair.isValid
-      x = pair.value
+      pair = Noble::Ed25519.uvRatio(u, v)
+      isValid = pair[:isValid]
+      x = pair[:value]
       raise Exception.new("Point.fromHex: invalid y coordinate") unless isValid
 
       # 4.  Finally, use the x_0 bit to select the right square root.  If
@@ -576,12 +543,12 @@ module Noble::Ed25519
     def toRawBytes() : Bytes
       bytes = Noble::Ed25519.numberTo32BytesLE(@y)
       bytes[31] |= @x & One ? 0x80 : 0
-      return bytes
+      bytes
     end
 
     # Same as toRawBytes, but returns string.
     def toHex() : String
-      return bytesToHex(self.toRawBytes())
+      Noble::Ed25519.bytesToHex(self.toRawBytes())
     end
 
     #**
@@ -598,8 +565,8 @@ module Noble::Ed25519
     # @returns u coordinate of curve25519 point
     #/
     def toX25519() : Bytes
-      u = Noble::Ed25519.mod((One + @y) * invert(One - @y))
-      return numberTo32BytesLE(u)
+      u = Noble::Ed25519.mod((One + @y) * Noble::Ed25519.invert(One - @y))
+      return Noble::Ed25519.numberTo32BytesLE(u)
     end
 
     def isTorsionFree() : Bool
@@ -644,9 +611,9 @@ module Noble::Ed25519
     end
 
     def self.fromHex(hex : Hex) : Signature
-      bytes = ensureBytes(hex, 64)
-      r = Point.fromHex(bytes.slice(0, 32), false)
-      s = bytesToNumberLE(bytes.slice(32, 64))
+      bytes = Noble::Ed25519.ensureBytes(hex, 64)
+      r = Point.fromHex(bytes[0, 32], false)
+      s = Noble::Ed25519.bytesToNumberLE(bytes[32, 32])
       Signature.new(r, s)
     end
 
@@ -658,19 +625,19 @@ module Noble::Ed25519
 
     def toRawBytes()
       u8 = Bytes.new(64)
-      u8.set(self.r.toRawBytes())
-      u8.set(Noble::Ed25519.numberTo32BytesLE(self.s), 32)
-      return u8
+      @r.toRawBytes().copy_to(u8)
+      Noble::Ed25519.numberTo32BytesLE(self.s).each_with_index {|elem, i| u8[32 + i] = elem}
+      u8
     end
 
     def toHex()
-      return bytesToHex(self.toRawBytes())
+      bytesToHex(self.toRawBytes())
     end
   end
 
   # export { ExtendedPoint, RistrettoPoint, Point, Signature }
 
-  def concatBytes(*arrays : Array(Bytes)) : Bytes
+  def concatBytes(*arrays) : Bytes
     if arrays.size == 1
       arrays[0]
     else
@@ -678,11 +645,10 @@ module Noble::Ed25519
       result = Bytes.new(length)
       i = 0
       pad = 0
-      while i < arrays.size     # for (i = 0, pad = 0 i < arrays.length i++)
-        arr = arrays[i]
-        result.set(arr, pad)
+      arrays.each do |arr|
+        arr.each_with_index {|elem, j| result[pad + j] = elem }
+        # result.set(arr, pad)
         pad += arr.size
-        i += 1
       end
       result
     end
@@ -734,7 +700,8 @@ module Noble::Ed25519
 
   # Little Endian
   def bytesToNumberLE(uint8a : Bytes) : BigInt
-    BigInt.new("0x" + bytesToHex(uint8a.clone.reverse!))
+    # BigInt.new("0x" + bytesToHex(uint8a.clone.reverse!))
+    BigInt.from_bytes(uint8a)
   end
 
   def bytes255ToNumberLE(bytes : Bytes) : BigInt
@@ -854,7 +821,7 @@ module Noble::Ed25519
   def uvRatio(u : BigInt, v : BigInt) : {isValid: Bool, value: BigInt}
     v3 = Noble::Ed25519.mod(v * v * v)                  # v³
     v7 = Noble::Ed25519.mod(v3 * v3 * v)                # v⁷
-    pow = pow_2_252_3(u * v7).pow_p_5_8
+    pow, _ = pow_2_252_3(u * v7)
     x = Noble::Ed25519.mod(u * v3 * pow)                  # (uv³)(uv⁷)^(p-5)/8
     vx2 = Noble::Ed25519.mod(v * x * x)                 # vx²
     root1 = x                            # First root candidate
@@ -875,8 +842,8 @@ module Noble::Ed25519
   # Math end
 
   # Little-endian SHA512 with modulo n
-  def sha512ModqLE(*args : Array(Bytes)) : BigInt
-    hash = utils.sha512(concatBytes(*args))
+  def sha512ModqLE(*args) : BigInt
+    hash = Utils.sha512(concatBytes(*args))
     value = bytesToNumberLE(hash)
     Noble::Ed25519.mod(value, Curve::L)
   end
@@ -885,12 +852,12 @@ module Noble::Ed25519
     b1 == b2
   end
 
-  def ensureBytes(hex : Hex, expectedLength : Int32?) : Bytes
+  def ensureBytes(hex : Hex, expectedLength : Int32? = nil) : Bytes
     # Bytes.from() instead of hash.slice() because node.js Buffer
     # is instance of Bytes, and its slice() creates **mutable** copy
     bytes = case hex
-    in UInt8Array
-      Bytes.from(hex)
+    in Bytes
+      hex
     in String
       hexToBytes(hex)
     end
@@ -911,9 +878,9 @@ module Noble::Ed25519
     # num = BigInt.new(num)
     case
     when strict && Zero < num && num < max
-      num
+      num.to_big_i
     when !strict && Zero <= num && num < max
-      num
+      num.to_big_i
     else
       raise ArgumentError.new("Expected valid scalar: 0 < scalar < max")
     end
@@ -958,7 +925,7 @@ module Noble::Ed25519
     #   typeof key === "BigInt" || typeof key === "number"
     #     ? numberTo32BytesBE(Noble::Ed25519.normalizeScalar(key, MAX_256B))
     #     : ensureBytes(key)
-    raise Exception.new("Expected 32 bytes") unless key_bytes.size == 32
+    raise Exception.new("Expected 32 bytes. Key is only #{key_bytes.size} bytes") unless key_bytes.size == 32
     # hash to produce 64 bytes
     hashed = Utils.sha512(key_bytes)
     # First 32 bytes of 64b uniformingly random input are taken,
@@ -994,7 +961,7 @@ module Noble::Ed25519
     _, prefix, scalar, _, pointBytes = getExtendedPublicKey(privateKey)
     r = sha512ModqLE(prefix, message) # r = hash(prefix + msg)
     r_ = Point::BASE.multiply(r) # R = rG
-    k = sha512ModqLE(R.toRawBytes(), pointBytes, message) # k = hash(R + P + msg)
+    k = sha512ModqLE(r_.toRawBytes(), pointBytes, message) # k = hash(R + P + msg)
     s = Noble::Ed25519.mod(r + k * scalar, Curve::L) # s = r + kp
     return Signature.new(r_, s).toRawBytes()
   end
@@ -1031,9 +998,9 @@ module Noble::Ed25519
     in Hex
       Signature.fromHex(sig)
     end
-    sb = ExtendedPoint::BASE.multiplyUnsafe(s)
+    sb = ExtendedPoint::BASE.multiplyUnsafe(signature.s)
     k = sha512ModqLE(signature.r.toRawBytes(), point.toRawBytes(), message)
-    kA = ExtendedPoint.fromAffine(point).multiplyUnsafe(signature.k)
+    kA = ExtendedPoint.fromAffine(point).multiplyUnsafe(k)
     rkA = ExtendedPoint.fromAffine(signature.r).add(kA)
     # [8][S]B = [8]R + [8][k]A'
     return rkA.subtract(sb).multiplyUnsafe(Curve::H).equals(ExtendedPoint::ZERO)
