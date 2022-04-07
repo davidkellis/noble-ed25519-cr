@@ -61,10 +61,10 @@ describe Noble::Ed25519 do
       message = rand_hex_string(32)
       privateKey = rand_bigint(Noble::Ed25519::Two, Noble::Ed25519::Curve::N)
       publicKey = Noble::Ed25519.getPublicKey(to_bytes(privateKey))
-      signature = Noble::Ed25519.sign(message.hex_to_bytes, to_bytes(privateKey))
+      signature = Noble::Ed25519.sign(to_bytes(message), to_bytes(privateKey))
       publicKey.size.should eq(32)
       signature.size.should eq(64)
-      Noble::Ed25519.verify(signature, message.hex_to_bytes, publicKey).should be_true
+      Noble::Ed25519.verify(signature, to_bytes(message), publicKey).should be_true
     end
 
     it "should sign and verify" do
