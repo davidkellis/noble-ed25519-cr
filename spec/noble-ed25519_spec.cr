@@ -3,11 +3,19 @@ require "./spec_helper"
 require "big"
 require "extlib"
 
-PRIVATE_KEY = "00000000000000000000000000000000000000a665a45920422f9d417e4867ef".hex_to_bytes
+PRIVATE_KEY = to_bytes("a665a45920422f9d417e4867ef")
 MESSAGE = [135, 79, 153, 96, 197, 210, 183, 169, 181, 250, 211, 131, 225, 186, 68, 113, 158, 187, 116, 58].to_bytes
 WRONG_MESSAGE = [88, 157, 140, 127, 29, 160, 162, 75, 192, 123, 115, 129, 173, 72, 177, 207, 194, 17, 175, 28].to_bytes
 
 module Helper
+  def to_bytes(str : String) : Bytes
+    hex = str.rjust(64, '0')
+    Bytes.new(hex.size // 2) do |i|
+      j = i * 2
+      hex[j, 2].to_u8(16)
+    end
+  end
+
   def to_bytes(num : BigInt) : Bytes
     hex = num.to_s(16)
     hex = hex.rjust(64, '0')
