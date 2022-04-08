@@ -103,6 +103,10 @@ module Noble::Ed25519
       return x1z2 === x2z1 && y1z2 === y2z1
     end
 
+    def ==(other : ExtendedPoint) : Bool
+      equals(other)
+    end
+
     # Inverses point to one corresponding to (x, -y) in Affine coordinates.
     def negate() : ExtendedPoint
       return ExtendedPoint.new(Noble::Ed25519.mod(-@x), @y, @z, Noble::Ed25519.mod(-@t))
@@ -438,6 +442,10 @@ module Noble::Ed25519
       return one || two
     end
 
+    def ==(other : RistrettoPoint) : Bool
+      equals(other)
+    end
+
     def add(other : RistrettoPoint) : RistrettoPoint
       assertRstPoint(other)
       return RistrettoPoint.new(self.ep.add(other.ep))
@@ -542,7 +550,7 @@ module Noble::Ed25519
     # and use the last byte to encode sign of x.
     def toRawBytes() : Bytes
       bytes = Noble::Ed25519.numberTo32BytesLE(@y)
-      bytes[31] |= @x & One ? 0x80 : 0
+      bytes[31] |= (@x & One == One ? 0x80 : 0)
       bytes
     end
 
@@ -575,6 +583,10 @@ module Noble::Ed25519
 
     def equals(other : Point) : Bool
       return @x === other.x && @y === other.y
+    end
+
+    def ==(other : Point) : Bool
+      equals(other)
     end
 
     def negate()
