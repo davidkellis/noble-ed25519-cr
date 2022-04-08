@@ -285,11 +285,11 @@ module Noble::Ed25519
     end
 
     def isSmallOrder() : Bool
-      return self.multiplyUnsafe(Curve::H).equals(ExtendedPoint::ZERO)
+      self.multiplyUnsafe(Curve::H).equals(ExtendedPoint::ZERO)
     end
 
     def isTorsionFree() : Bool
-      return self.multiplyUnsafe(Curve::L).equals(ExtendedPoint::ZERO)
+      self.multiplyUnsafe(Curve::L).equals(ExtendedPoint::ZERO)
     end
 
     # Converts Extended point to default (x, y) coordinates.
@@ -299,10 +299,8 @@ module Noble::Ed25519
       ax = Noble::Ed25519.mod(x * invZ)
       ay = Noble::Ed25519.mod(y * invZ)
       zz = Noble::Ed25519.mod(z * invZ)
-      if zz != One
-        raise Exception.new("invZ was invalid")
-      end
-      return Point.new(ax, ay)
+      raise Exception.new("invZ was invalid") if zz != One
+      Point.new(ax, ay)
     end
   end
 
