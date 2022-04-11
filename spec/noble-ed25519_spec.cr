@@ -18,11 +18,7 @@ module Helper
 
   def to_bytes(num : BigInt) : Bytes
     hex = num.to_s(16)
-    hex = hex.rjust(64, '0')
-    Bytes.new(hex.size // 2) do |i|
-      j = i * 2
-      hex[j, 2].to_u8(16)
-    end
+    to_bytes(hex)
   end
 
   RAND = Random.new
@@ -209,7 +205,23 @@ describe Noble::Ed25519 do
       p2.x.should eq "22321684185565943538558315764286033780372969712381639797051747678870352647731".to_big_i
       p2.y.should eq "38655008969693726098878720355832570031914924052594147795829808220614943511493".to_big_i
     end
+  end
 
+  describe "Signature" do
+    it "builds from Hex" do
+      bytes = [126, 53, 132, 137, 134, 7, 9, 5, 101, 248, 41, 96, 94, 100, 244, 241, 68, 100, 234, 120, 1, 194, 16, 148, 150, 227, 147, 254, 0, 189, 23, 213, 53, 173, 180, 16, 169, 128, 123, 5, 204, 49, 120, 123, 36, 100, 113, 149, 235, 244, 141, 54, 57, 40, 114, 49, 38, 182, 224, 59, 28, 24, 71, 2].to_bytes
+      
+      Noble::Ed25519.ensureBytes(bytes, 64).should eq [126, 53, 132, 137, 134, 7, 9, 5, 101, 248, 41, 96, 94, 100, 244, 241, 68, 100, 234, 120, 1, 194, 16, 148, 150, 227, 147, 254, 0, 189, 23, 213, 53, 173, 180, 16, 169, 128, 123, 5, 204, 49, 120, 123, 36, 100, 113, 149, 235, 244, 141, 54, 57, 40, 114, 49, 38, 182, 224, 59, 28, 24, 71, 2].to_bytes
+
+      p = Noble::Ed25519::Point.fromHex(bytes[0, 32])
+      p.x.should eq "26513934692395043603859440234860016414416335308392436527957390257926012134861".to_big_i
+      p.y.should eq "38488534068937249364295735992136415884264322982189244974287126545192511092094".to_big_i
+
+      signature = Noble::Ed25519::Signature.fromHex(bytes)
+      signature.r.x.should eq "26513934692395043603859440234860016414416335308392436527957390257926012134861".to_big_i
+      signature.r.y.should eq "38488534068937249364295735992136415884264322982189244974287126545192511092094".to_big_i
+      signature.s.should eq "1030238241862493884017068346373435311944855604250319369930294746777369488693".to_big_i
+    end
   end
 
   describe "sign" do
@@ -246,6 +258,58 @@ describe Noble::Ed25519 do
       publicKey = Noble::Ed25519.getPublicKey(PRIVATE_KEY)
       signature = Noble::Ed25519.sign(MESSAGE, PRIVATE_KEY)
       Noble::Ed25519.verify(signature, WRONG_MESSAGE, publicKey).should be_false
+    end
+
+    it "has correct intermediate values" do
+      publicKey : Noble::Ed25519::PubKey = Noble::Ed25519.getPublicKey(PRIVATE_KEY)
+      sig : Noble::Ed25519::SigType = Noble::Ed25519.sign(MESSAGE, PRIVATE_KEY)
+
+      message = Noble::Ed25519.ensureBytes(MESSAGE)
+      # When hex is passed, we check public key fully.
+      # When Point instance is passed, we assume it has already been checked, for performance.
+      # If user passes Point/Sig instance, we assume it has been already verified.
+      # We don't check its equations for performance. We do check for valid bounds for s though
+      # We always check for: a) s bounds. b) hex validity
+      
+      # if (!(publicKey instanceof Point)) publicKey = Point.fromHex(publicKey, false)
+      point = case publicKey
+      in Noble::Ed25519::Hex
+        Noble::Ed25519::Point.fromHex(publicKey, false)
+      in Noble::Ed25519::Point
+        publicKey
+      end
+  
+      # { r, s } = sig instanceof Signature ? sig.assertValidity() : Signature.fromHex(sig)
+      signature = case sig
+      in Noble::Ed25519::Signature
+        sig.assertValidity()
+      in Noble::Ed25519::Hex
+        Noble::Ed25519::Signature.fromHex(sig)
+      end
+      sb = Noble::Ed25519::ExtendedPoint::BASE.multiplyUnsafe(signature.s)
+      k = Noble::Ed25519.sha512ModqLE(signature.r.toRawBytes(), point.toRawBytes(), message)
+      kA = Noble::Ed25519::ExtendedPoint.fromAffine(point).multiplyUnsafe(k)
+      rkA = Noble::Ed25519::ExtendedPoint.fromAffine(signature.r).add(kA)
+
+      message.should eq [135, 79, 153, 96, 197, 210, 183, 169, 181, 250, 211, 131, 225, 186, 68, 113, 158, 187, 116, 58].to_bytes
+      point.x.should eq "13663649446542597719550959276437970190593665354523449128466207698868480675936".to_big_i
+      point.y.should eq "52410848636940328811284449235140577725393652610851387856422556910462868432345".to_big_i
+      signature.r.x.should eq "26513934692395043603859440234860016414416335308392436527957390257926012134861".to_big_i
+      signature.r.y.should eq "38488534068937249364295735992136415884264322982189244974287126545192511092094".to_big_i
+      signature.s.should eq "1030238241862493884017068346373435311944855604250319369930294746777369488693".to_big_i
+      sb.x.should eq "42555729138687082465135907933346167973310220036981717167880959429484422730571".to_big_i
+      sb.y.should eq "14816539799550742338566519236627172807265785419201308159291754625902411073362".to_big_i
+      sb.z.should eq "1".to_big_i
+      sb.t.should eq "6006626025786440174029629818678378934986808588828747534556739201674932870865".to_big_i
+      k.should eq "1814430438154866636271880811902750784441195987091833047335934192220047792856".to_big_i
+      kA.x.should eq "48024246067080362711680066830877261206448493624890828398561874175851802089745".to_big_i
+      kA.y.should eq "52831917502302850574083450133635930785536484365871120074413267490254610346263".to_big_i
+      kA.z.should eq "22784621637809059626576083971582583127671719532097792236310094947932042321948".to_big_i
+      kA.t.should eq "5729477690831117593843147492573788142992902155283188140971547395390838359670".to_big_i
+      rkA.x.should eq "44772997851978823908305596641152226192884748174736909860521730933856479294204".to_big_i
+      rkA.y.should eq "7808161647464256657139708023348025878175521363979580306482094346987178616005".to_big_i
+      rkA.z.should eq "23471157572058014726220357190102441768621715125713712393537116548882713442849".to_big_i
+      rkA.t.should eq "55608521688890503600733115863660005369712480444448284734270591467996262021613".to_big_i
     end
   end
 

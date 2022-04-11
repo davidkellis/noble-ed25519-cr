@@ -505,6 +505,7 @@ module Noble::Ed25519
     # Uses algo from RFC8032 5.1.3.
     def self.fromHex(hex : Hex, strict = true)
       hex = Noble::Ed25519.ensureBytes(hex, 32)
+      
       # 1.  First, interpret the string as an integer in little-endian
       # representation. Bit 255 of this number is the least significant
       # bit of the x-coordinate and denote this value x_0.  The
@@ -533,14 +534,15 @@ module Noble::Ed25519
       # 2, set x <-- p - x.  Return the decoded point (x,y).
       isXOdd = (x & One) == One
       isLastByteOdd = (hex[31] & 0x80) != 0
-      if (isLastByteOdd != isXOdd)
+      if isLastByteOdd != isXOdd
         x = Noble::Ed25519.mod(-x)
       end
-      return Point.new(x, y)
+
+      Point.new(x, y)
     end
 
     def self.fromPrivateKey(privateKey : PrivKey)
-      return (getExtendedPublicKey(privateKey)).point
+      getExtendedPublicKey(privateKey).point
     end
 
     # There can always be only two x values (x, -x) for any y
