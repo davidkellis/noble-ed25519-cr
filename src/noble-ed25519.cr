@@ -504,15 +504,15 @@ module Noble::Ed25519
     # Converts hash string or Bytes to Point.
     # Uses algo from RFC8032 5.1.3.
     def self.fromHex(hex : Hex, strict = true)
-      hex = Noble::Ed25519.ensureBytes(hex, 32)
+      hex_bytes = Noble::Ed25519.ensureBytes(hex, 32)
       
       # 1.  First, interpret the string as an integer in little-endian
       # representation. Bit 255 of this number is the least significant
       # bit of the x-coordinate and denote this value x_0.  The
       # y-coordinate is recovered simply by clearing this bit.  If the
       # resulting value is >= p, decoding fails.
-      normed = hex.to_slice
-      normed[31] = hex[31] & ~0x80
+      normed = hex_bytes.clone
+      normed[31] = hex_bytes[31] & ~0x80
       y = Noble::Ed25519.bytesToNumberLE(normed)
 
       raise Exception.new("Expected 0 < hex < P") if strict && y >= Curve::P
@@ -533,7 +533,7 @@ module Noble::Ed25519
       # x = 0, and x_0 = 1, decoding fails.  Otherwise, if x_0 != x mod
       # 2, set x <-- p - x.  Return the decoded point (x,y).
       isXOdd = (x & One) == One
-      isLastByteOdd = (hex[31] & 0x80) != 0
+      isLastByteOdd = (hex_bytes[31] & 0x80) != 0
       if isLastByteOdd != isXOdd
         x = Noble::Ed25519.mod(-x)
       end
