@@ -260,13 +260,16 @@ describe Noble::Ed25519 do
 
   describe "verify" do
     it "should verify just signed message" do
-      message = rand_hex_string(32)
-      privateKey = rand_bigint(Noble::Ed25519::Two, Noble::Ed25519::Curve::N)
-      publicKey = Noble::Ed25519.getPublicKey(to_bytes(privateKey))
-      signature = Noble::Ed25519.sign(to_bytes(message), to_bytes(privateKey))
-      publicKey.size.should eq(32)
-      signature.size.should eq(64)
-      Noble::Ed25519.verify(signature, to_bytes(message), publicKey).should be_true
+      50.times do
+        message = rand_hex_string(32)
+        privateKey = rand_bigint(Noble::Ed25519::Two, Noble::Ed25519::Curve::N)
+
+        publicKey = Noble::Ed25519.getPublicKey(to_bytes(privateKey))
+        signature = Noble::Ed25519.sign(to_bytes(message), to_bytes(privateKey))
+        publicKey.size.should eq(32)
+        signature.size.should eq(64)
+        Noble::Ed25519.verify(signature, to_bytes(message), publicKey).should be_true
+      end
     end
 
     it "should sign and verify" do
@@ -287,7 +290,7 @@ describe Noble::Ed25519 do
       Noble::Ed25519.verify(signature, WRONG_MESSAGE, publicKey).should be_false
     end
 
-    it "has correct intermediate values" do
+    it "has correct intermediate values in the implementation" do
       publicKey : Noble::Ed25519::PubKey = Noble::Ed25519.getPublicKey(PRIVATE_KEY)
       sig : Noble::Ed25519::SigType = Noble::Ed25519.sign(MESSAGE, PRIVATE_KEY)
 
@@ -361,6 +364,14 @@ describe Noble::Ed25519 do
       publicKey = Noble::Ed25519::Point::BASE.multiply("69d896f02d79524c9878e080308180e2859d07f9f54454e0800e8db0847a46e".hex_to_bigint)
       publicKey.toHex.should eq("f12cb7c43b59971395926f278ce7c2eaded9444fbce62ca717564cb508a0db1d")
     end
+
+    it "should raise on invalid input" do
+      ["0", "-1", "1.1"].each do |num_str|
+        expect_raises(Exception) do
+          Noble::Ed25519::Point::BASE.multiply(num_str.to_big_i)
+        end
+      end
+    end
   end
 
   describe "getSharedSecret" do
@@ -368,6 +379,19 @@ describe Noble::Ed25519 do
       Noble::Ed25519::Point::BASE.toX25519.to_hex.should eq(Noble::Ed25519::Curve25519::BASE_POINT_U)
     end
 
-
+    it "should be commutative" do
+      512.times do
+        asec = Noble::Ed25519::Utils.randomPrivateKey()
+        apub = Noble::Ed25519.getPublicKey(asec)
+        bsec = Noble::Ed25519::Utils.randomPrivateKey()
+        bpub = Noble::Ed25519.getPublicKey(bsec)
+        begin
+          Noble::Ed25519.getSharedSecret(asec, bpub).should eq Noble::Ed25519.getSharedSecret(bsec, apub)
+        rescue err
+          raise "not commutative: #{err}: #{asec}, #{apub}, #{bsec}, #{bpub}"
+        end
+      end
+    end
   end
+
 end

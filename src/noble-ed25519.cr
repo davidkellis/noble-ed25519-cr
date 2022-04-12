@@ -1124,13 +1124,13 @@ module Noble::Ed25519
 
     # crypto_scalarmult aka getSharedSecret
     def self.scalarMult(privateKey : Hex, publicKey : Hex) : Bytes
-      u = decodeUCoordinate(publicKey)
-      p = decodeScalar25519(privateKey)
-      pu = montgomeryLadder(u, p)
+      u = Noble::Ed25519.decodeUCoordinate(publicKey)
+      p = Noble::Ed25519.decodeScalar25519(privateKey)
+      pu = Noble::Ed25519.montgomeryLadder(u, p)
       # The result was not contributory
       # https://cr.yp.to/ecdh.html#validate
       raise Exception.new("Invalid private or public key received") if pu == Zero
-      encodeUCoordinate(pu)
+      Noble::Ed25519.encodeUCoordinate(pu)
     end
 
     # crypto_scalarmult_base aka getPublicKey
