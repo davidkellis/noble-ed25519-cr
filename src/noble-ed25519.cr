@@ -192,13 +192,13 @@ module Noble::Ed25519
       raise ArgumentError.new("Point#wNAF: Invalid precomputation window, must be power of 2") if 256 % w != 0
 
       precomputes : Array(ExtendedPoint) = 
-        if affinePoint && (points = Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)]?)
+        if affinePoint && (points = Noble::Ed25519::PointPrecomputes[affinePoint]?)
           points
         else
           points = precomputeWindow(w)
           if affinePoint && w != 1
             points = ExtendedPoint.normalizeZ(points)
-            Noble::Ed25519::PointPrecomputes[WeakRef.new(affinePoint)] = points
+            Noble::Ed25519::PointPrecomputes[affinePoint] = points
           end
           points
         end
@@ -464,7 +464,7 @@ module Noble::Ed25519
   end
 
   # Stores precomputed values for points.
-  PointPrecomputes = Hash(WeakRef(Point), Array(ExtendedPoint)).new()    # Todo: This should be a WeakMap, to retain the same semantics as the original implementation in typescript
+  PointPrecomputes = Hash(Point, Array(ExtendedPoint)).new()    # Todo: This should be a WeakMap, to retain the same semantics as the original implementation in typescript
 
   #**
   # Default Point works in affine coordinates: (x, y)
@@ -492,13 +492,13 @@ module Noble::Ed25519
     # This method only exists to retain the WeakMap semantics that were encoded in the original implementation
     # through the use of WeakMap(Point, Array(ExtendedPoint)) in typescript.
     def finialize
-      Noble::Ed25519::PointPrecomputes.delete(WeakRef.new(self))
+      Noble::Ed25519::PointPrecomputes.delete(self)
     end
 
     # "Private method", don't use it directly.
     def _setWindowSize(windowSize : Int32)
       @_WINDOW_SIZE = windowSize
-      Noble::Ed25519::PointPrecomputes.delete(WeakRef.new(self))
+      Noble::Ed25519::PointPrecomputes.delete(self)
     end
 
     # Converts hash string or Bytes to Point.
@@ -646,8 +646,6 @@ module Noble::Ed25519
       bytesToHex(self.toRawBytes())
     end
   end
-
-  # export { ExtendedPoint, RistrettoPoint, Point, Signature }
 
   def concatBytes(*arrays) : Bytes
     if arrays.size == 1
@@ -1139,13 +1137,6 @@ module Noble::Ed25519
     end
   end
 
-  # Global symbol available in browsers only. Ensure we do not depend on @types/dom
-  # declare self : Record<string, any> | undefined
-  # crypto : { node? : any, web? : any } = {
-  #   node: nodeCrypto,
-  #   web: typeof self === "object" && "crypto" in self ? self.crypto : undefined,
-  # }
-
   module Utils
     extend self
 
@@ -1162,11 +1153,6 @@ module Noble::Ed25519
       "0000000000000000000000000000000000000000000000000000000000000000",
       "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
     ] of String
-
-    # bytesToHex,
-    # getExtendedPublicKey,
-    # mod,
-    # invert,
 
     #**
     # Can take 40 or more bytes of uniform input e.g. from CSPRNG or KDF
